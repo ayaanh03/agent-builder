@@ -171,6 +171,7 @@ class AvisApp(App):
     #chat-scroll {
         height: 1fr;
         padding: 1 2;
+        scrollbar-gutter: stable;
     }
 
     .chat-msg {
@@ -226,6 +227,9 @@ class AvisApp(App):
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding("up", "arrow_up", show=False),
+        Binding("down", "arrow_down", show=False),
+        Binding("enter", "arrow_enter", show=False, priority=True),
     ]
 
     TITLE = "Avis Rental Support"
@@ -240,7 +244,7 @@ class AvisApp(App):
         set_logger(self.logger)
 
     def compose(self) -> ComposeResult:
-        yield VerticalScroll(id="chat-scroll")
+        yield VerticalScroll(id="chat-scroll", can_focus=False)
         yield Input(placeholder="Type your message or select an option...", id="user-input")
         yield Footer()
 
@@ -374,6 +378,33 @@ class AvisApp(App):
         inp.disabled = False
         inp.focus()
 
+
+    def action_arrow_up(self) -> None:
+        """Route up arrow to option group if active, otherwise do nothing."""
+        if self._options_active:
+            for group in self.query(OptionGroup):
+                if not group.has_focus:
+                    group.focus()
+                group.action_move_up()
+
+    def action_arrow_down(self) -> None:
+        """Route down arrow to option group if active, otherwise do nothing."""
+        if self._options_active:
+            for group in self.query(OptionGroup):
+                if not group.has_focus:
+                    group.focus()
+                group.action_move_down()
+
+    def action_arrow_enter(self) -> None:
+        """Route enter to option group if focused, otherwise let input handle it."""
+        if self._options_active:
+            for group in self.query(OptionGroup):
+                group.action_select()
+                return
+        # If not in options, submit the input field
+        inp = self.query_one("#user-input", Input)
+        if inp.value.strip():
+            inp.action_submit()
 
     def action_quit(self) -> None:
         """Finalize log and exit immediately."""
