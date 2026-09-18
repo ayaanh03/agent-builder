@@ -15,3 +15,6 @@ venv/
 
 # Claude Code context (local only)
 CLAUDE.md
+
+# Chat session logs (may contain PII)
+logs/

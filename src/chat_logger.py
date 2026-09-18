@@ -1,0 +1,159 @@
+"""Conversation logger for agent improvement and analysis.
+
+Logs each chat session as a structured JSON file under logs/. Each session
+captures: metadata (session id, start/end time, user actions), the full
+message history, tool invocations with inputs/outputs, and outcome signals
+(errors, escalations, workflow completions).
+
+Usage:
+    logger = ChatLogger()
+    logger.log_user_message("I'd like to extend my rental.")
+    logger.log_agent_message("Sure! What's your reservation ID?")
+    logger.log_tool_call("lookup_reservation", {"reservation_id": "AVS-123"}, {...result...})
+    logger.finalize()  # writes the session file
+"""
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
+# Module-level active logger — set by the terminal when a session starts.
+# Tools can import this and call it without circular deps.
+_active_logger: "ChatLogger | None" = None
+
+
+def get_logger() -> "ChatLogger | None":
+    """Get the active session logger, if one exists."""
+    return _active_logger
+
+
+def set_logger(logger: "ChatLogger") -> None:
+    """Set the active session logger."""
+    global _active_logger
+    _active_logger = logger
+
+
+class ChatLogger:
+    """Records a single chat session to a structured JSON log file."""
+
+    def __init__(self, session_id: str | None = None):
+        self.session_id = session_id or str(uuid.uuid4())[:12]
+        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.ended_at: str | None = None
+        self.messages: list[dict] = []
+        self.tool_calls: list[dict] = []
+        self.errors: list[dict] = []
+        self.workflows_attempted: list[str] = []
+        self.workflows_completed: list[str] = []
+        self._message_count = {"user": 0, "agent": 0}
+        self._turn = 0
+
+    def log_user_message(self, text: str, source: str = "typed") -> None:
+        """Log a user message. source: 'typed', 'option_click', 'option_number', 'option_arrow'."""
+        self._turn += 1
+        self._message_count["user"] += 1
+        self.messages.append({
+            "turn": self._turn,
+            "role": "user",
+            "content": text,
+            "source": source,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def log_agent_message(self, text: str, duration_ms: int | None = None) -> None:
+        """Log an agent response. duration_ms is the time the agent took to respond."""
+        self._message_count["agent"] += 1
+        self.messages.append({
+            "turn": self._turn,
+            "role": "agent",
+            "content": text,
+            "duration_ms": duration_ms,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def log_tool_call(self, tool_name: str, inputs: dict, output: str | dict,
+                      success: bool = True, duration_ms: int | None = None) -> None:
+        """Log a tool invocation with its inputs and outputs."""
+        self.tool_calls.append({
+            "turn": self._turn,
+            "tool": tool_name,
+            "inputs": inputs,
+            "output": _truncate(output, max_len=2000),
+            "success": success,
+            "duration_ms": duration_ms,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # Auto-detect workflow attempts from tool names
+        workflow_map = {
+            "extend_rental": "extend",
+            "get_extension_quote": "extend",
+            "cancel_rental": "cancel",
+        }
+        wf = workflow_map.get(tool_name)
+        if wf and wf not in self.workflows_attempted:
+            self.workflows_attempted.append(wf)
+        if wf and success and tool_name in ("extend_rental", "cancel_rental"):
+            if wf not in self.workflows_completed:
+                self.workflows_completed.append(wf)
+
+    def log_error(self, error_type: str, message: str, context: dict | None = None) -> None:
+        """Log an error that occurred during the session."""
+        self.errors.append({
+            "turn": self._turn,
+            "type": error_type,
+            "message": message,
+            "context": context or {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def finalize(self) -> str | None:
+        """Write the session log to disk. Returns the file path, or None on failure."""
+        self.ended_at = datetime.now(timezone.utc).isoformat()
+
+        session = {
+            "session_id": self.session_id,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "summary": {
+                "total_turns": self._turn,
+                "user_messages": self._message_count["user"],
+                "agent_messages": self._message_count["agent"],
+                "tool_calls": len(self.tool_calls),
+                "errors": len(self.errors),
+                "workflows_attempted": self.workflows_attempted,
+                "workflows_completed": self.workflows_completed,
+            },
+            "messages": self.messages,
+            "tool_calls": self.tool_calls,
+            "errors": self.errors,
+        }
+
+        try:
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{self.session_id}.json"
+            filepath = LOGS_DIR / filename
+
+            with open(filepath, "w") as f:
+                json.dump(session, f, indent=2, ensure_ascii=False)
+
+            return str(filepath)
+        except Exception:
+            return None
+
+
+def _truncate(value: str | dict, max_len: int = 2000) -> str | dict:
+    """Truncate long string outputs to keep logs manageable."""
+    if isinstance(value, dict):
+        s = json.dumps(value)
+        if len(s) > max_len:
+            return {"_truncated": True, "preview": s[:max_len] + "..."}
+        return value
+    if isinstance(value, str) and len(value) > max_len:
+        return value[:max_len] + "... [truncated]"
+    return value

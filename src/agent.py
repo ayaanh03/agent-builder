@@ -12,9 +12,18 @@ load_dotenv()
 
 from agents import Agent, Runner, function_tool  # noqa: E402
 
+import time  # noqa: E402
 import avis_client  # noqa: E402
 from avis_client import AvisAPIError, AvisAPIUnavailable  # noqa: E402
 import knowledge_base  # noqa: E402
+from chat_logger import get_logger  # noqa: E402
+
+
+def _log_tool(name: str, inputs: dict, output, success: bool = True, duration_ms: int | None = None):
+    """Log a tool call to the active session logger if one exists."""
+    logger = get_logger()
+    if logger:
+        logger.log_tool_call(name, inputs, output, success=success, duration_ms=duration_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -25,12 +34,21 @@ import knowledge_base  # noqa: E402
 def lookup_reservation(reservation_id: str) -> str:
     """Look up an Avis reservation by its ID (e.g. 'AVS-29471835').
     Returns reservation details including customer, vehicle, dates, and status."""
+    t0 = time.monotonic()
     try:
         data = avis_client.get_reservation(reservation_id)
-        return json.dumps(data, indent=2)
+        result = json.dumps(data, indent=2)
+        _log_tool("lookup_reservation", {"reservation_id": reservation_id}, result,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
     except AvisAPIError as e:
-        return f"Error looking up reservation: {e.message}"
+        msg = f"Error looking up reservation: {e.message}"
+        _log_tool("lookup_reservation", {"reservation_id": reservation_id}, msg,
+                  success=False, duration_ms=int((time.monotonic() - t0) * 1000))
+        return msg
     except AvisAPIUnavailable as e:
+        _log_tool("lookup_reservation", {"reservation_id": reservation_id}, str(e),
+                  success=False, duration_ms=int((time.monotonic() - t0) * 1000))
         return str(e)
 
 
@@ -38,13 +56,21 @@ def lookup_reservation(reservation_id: str) -> str:
 def search_knowledge_base(query: str) -> str:
     """Search Avis help-center articles for policies, fees, and procedures.
     Use this to answer customer questions about rental policies."""
+    t0 = time.monotonic()
     results = knowledge_base.search(query, top_k=3)
     if not results:
-        return "No relevant articles found for that query."
+        out = "No relevant articles found for that query."
+        _log_tool("search_knowledge_base", {"query": query}, out,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return out
     parts = []
     for r in results:
         parts.append(f"**{r['title']}** ({r['authority']})\n{r['body']}")
-    return "\n\n---\n\n".join(parts)
+    out = "\n\n---\n\n".join(parts)
+    _log_tool("search_knowledge_base", {"query": query},
+              {"articles": [r["id"] for r in results]},
+              duration_ms=int((time.monotonic() - t0) * 1000))
+    return out
 
 
 @function_tool
@@ -52,12 +78,22 @@ def get_extension_quote(reservation_id: str, new_return_datetime: str) -> str:
     """Get a price quote for extending a rental to a new return date/time.
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset (e.g. 2027-06-17T14:00:00-07:00).
     This is a read-only operation — it does not commit the change."""
+    t0 = time.monotonic()
+    inputs = {"reservation_id": reservation_id, "new_return_datetime": new_return_datetime}
     try:
         data = avis_client.get_quote(reservation_id, "extend", new_return_datetime)
-        return json.dumps(data, indent=2)
+        result = json.dumps(data, indent=2)
+        _log_tool("get_extension_quote", inputs, result,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
     except AvisAPIError as e:
-        return f"Error getting quote: {e.message}"
+        msg = f"Error getting quote: {e.message}"
+        _log_tool("get_extension_quote", inputs, msg, success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return msg
     except AvisAPIUnavailable as e:
+        _log_tool("get_extension_quote", inputs, str(e), success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
         return str(e)
 
 
@@ -67,15 +103,26 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
     """Execute a rental extension. Requires customer verification (email) and
     payment details (CVV and billing zip). Always get a quote first and confirm
     with the customer before calling this."""
+    t0 = time.monotonic()
     idem_key = f"{reservation_id}-extend-{uuid.uuid4()}"
+    inputs = {"reservation_id": reservation_id, "new_return_datetime": new_return_datetime,
+              "email": "***", "has_cvv": True, "billing_zip": billing_zip}
     try:
         data = avis_client.extend_reservation(
             reservation_id, new_return_datetime, email, cvv, billing_zip, idem_key
         )
-        return json.dumps(data, indent=2)
+        result = json.dumps(data, indent=2)
+        _log_tool("extend_rental", inputs, result,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
     except AvisAPIError as e:
-        return f"Extension failed: {e.message}"
+        msg = f"Extension failed: {e.message}"
+        _log_tool("extend_rental", inputs, msg, success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return msg
     except AvisAPIUnavailable as e:
+        _log_tool("extend_rental", inputs, str(e), success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
         return str(e)
 
 
@@ -83,13 +130,23 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
 def cancel_rental(reservation_id: str, email: str, reason: str = "") -> str:
     """Cancel an Avis reservation. Requires customer email for verification.
     Returns cancellation details including any refund or penalty amounts."""
+    t0 = time.monotonic()
     idem_key = f"{reservation_id}-cancel-{uuid.uuid4()}"
+    inputs = {"reservation_id": reservation_id, "email": "***", "reason": reason}
     try:
         data = avis_client.cancel_reservation(reservation_id, email, reason, idem_key)
-        return json.dumps(data, indent=2)
+        result = json.dumps(data, indent=2)
+        _log_tool("cancel_rental", inputs, result,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
     except AvisAPIError as e:
-        return f"Cancellation failed: {e.message}"
+        msg = f"Cancellation failed: {e.message}"
+        _log_tool("cancel_rental", inputs, msg, success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
+        return msg
     except AvisAPIUnavailable as e:
+        _log_tool("cancel_rental", inputs, str(e), success=False,
+                  duration_ms=int((time.monotonic() - t0) * 1000))
         return str(e)
 
 

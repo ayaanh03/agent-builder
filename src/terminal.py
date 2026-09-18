@@ -13,7 +13,11 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
 
+import time
+
 from agents import Runner
+
+from chat_logger import ChatLogger, set_logger
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +220,10 @@ class AvisApp(App):
         super().__init__()
         self.conversation_history: list[dict] = []
         self._options_active = False
+        self._msg_source = "typed"  # tracks how the current message was sent
+        self._agent_start: float = 0
+        self.logger = ChatLogger()
+        set_logger(self.logger)
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-scroll")
@@ -267,6 +275,7 @@ class AvisApp(App):
     def on_option_selected(self, event: OptionItem.Selected) -> None:
         """Handle an option being selected (click, number, or enter)."""
         self._dismiss_options()
+        self._msg_source = "option_click"
         self._send_message(event.text)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -281,10 +290,12 @@ class AvisApp(App):
             idx = int(text) - 1
             if 0 <= idx < len(MENU_OPTIONS):
                 self._dismiss_options()
+                self._msg_source = "option_number"
                 self._send_message(MENU_OPTIONS[idx][1])
                 return
 
         self._dismiss_options()
+        self._msg_source = "typed"
         self._send_message(text)
 
     def _send_message(self, text: str) -> None:
@@ -297,6 +308,7 @@ class AvisApp(App):
         chat.scroll_end(animate=False)
 
         self.conversation_history.append({"role": "user", "content": text})
+        self.logger.log_user_message(text, source=self._msg_source)
 
         # Show thinking indicator
         thinking = Static("[dim italic]🤔 Thinking...[/]")
@@ -307,6 +319,7 @@ class AvisApp(App):
 
         # Disable input while processing
         self.query_one("#user-input", Input).disabled = True
+        self._agent_start = time.monotonic()
 
         self._run_agent()
 
@@ -320,8 +333,11 @@ class AvisApp(App):
             response = result.final_output
         except Exception as e:
             response = f"I'm sorry, something went wrong: {e}\nPlease try again."
+            self.logger.log_error("agent_exception", str(e))
 
+        duration_ms = int((time.monotonic() - self._agent_start) * 1000)
         self.conversation_history.append({"role": "assistant", "content": response})
+        self.logger.log_agent_message(response, duration_ms=duration_ms)
         self.call_from_thread(self._show_response, response)
 
     def _show_response(self, text: str) -> None:
@@ -346,6 +362,14 @@ class AvisApp(App):
 
         # Show options again inline
         self._show_options()
+
+
+    def action_quit(self) -> None:
+        """Finalize log and exit."""
+        log_path = self.logger.finalize()
+        if log_path:
+            self.notify(f"Session logged to {log_path}", title="Log saved")
+        super().action_quit()
 
 
 def main():
