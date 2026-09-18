@@ -60,10 +60,20 @@ class OptionItem(Static):
         self.post_message(self.Selected(self.prompt))
 
 
-class OptionGroup(Static):
+class OptionGroup(Static, can_focus=True):
     """A group of inline options in the chat. Handles arrow keys and number selection."""
 
     active_index = reactive(0)
+
+    BINDINGS = [
+        Binding("up", "move_up", "Previous option", show=False),
+        Binding("down", "move_down", "Next option", show=False),
+        Binding("enter", "select", "Select option", show=False),
+        Binding("1", "pick_1", show=False),
+        Binding("2", "pick_2", show=False),
+        Binding("3", "pick_3", show=False),
+        Binding("4", "pick_4", show=False),
+    ]
 
     def __init__(self, options: list[tuple[str, str]]) -> None:
         """options: list of (label, prompt) tuples."""
@@ -87,29 +97,29 @@ class OptionGroup(Static):
         items[idx].highlighted = True
         self.active_index = idx
 
-    def key_up(self) -> None:
+    def action_move_up(self) -> None:
         self._highlight(self.active_index - 1)
 
-    def key_down(self) -> None:
+    def action_move_down(self) -> None:
         self._highlight(self.active_index + 1)
 
-    def key_enter(self) -> None:
+    def action_select(self) -> None:
         items = list(self.query(OptionItem))
         if items:
             items[self.active_index].post_message(
                 OptionItem.Selected(items[self.active_index].prompt)
             )
 
-    def key_1(self) -> None:
+    def action_pick_1(self) -> None:
         self._select_by_number(1)
 
-    def key_2(self) -> None:
+    def action_pick_2(self) -> None:
         self._select_by_number(2)
 
-    def key_3(self) -> None:
+    def action_pick_3(self) -> None:
         self._select_by_number(3)
 
-    def key_4(self) -> None:
+    def action_pick_4(self) -> None:
         self._select_by_number(4)
 
     def _select_by_number(self, num: int) -> None:
@@ -179,6 +189,10 @@ class AvisApp(App):
         margin: 0 0 1 2;
         padding: 0;
         height: auto;
+    }
+
+    .option-group:focus {
+        border: none;
     }
 
     OptionItem {
@@ -341,7 +355,7 @@ class AvisApp(App):
         self.call_from_thread(self._show_response, response)
 
     def _show_response(self, text: str) -> None:
-        """Display agent response and re-show options."""
+        """Display agent response."""
         chat = self.query_one("#chat-scroll")
 
         # Remove thinking indicator
@@ -355,13 +369,10 @@ class AvisApp(App):
         chat.mount(msg)
         chat.scroll_end(animate=False)
 
-        # Re-enable input
+        # Re-enable input — no options, just free-text chat from here
         inp = self.query_one("#user-input", Input)
         inp.disabled = False
         inp.focus()
-
-        # Show options again inline
-        self._show_options()
 
 
     def action_quit(self) -> None:
