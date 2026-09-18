@@ -318,7 +318,15 @@ class AvisApp(App):
 
     def _send_message(self, text: str) -> None:
         """Add user message to chat and trigger agent response."""
+        # Guard against double-send while processing
+        inp = self.query_one("#user-input", Input)
+        if inp.disabled:
+            return
+
         chat = self.query_one("#chat-scroll")
+
+        # Clear input field (in case option was clicked while text was typed)
+        inp.value = ""
 
         msg = ChatMessage(text, is_agent=False)
         msg.add_class("chat-msg")
@@ -336,7 +344,7 @@ class AvisApp(App):
         chat.scroll_end(animate=False)
 
         # Disable input while processing
-        self.query_one("#user-input", Input).disabled = True
+        inp.disabled = True
         self._agent_start = time.monotonic()
 
         self._run_agent()
