@@ -49,11 +49,32 @@ def main():
     if not os.environ.get("OPENAI_API_KEY"):
         print("Set OPENAI_API_KEY in your .env first (see env.example).")
         return
-    result = Runner.run_sync(
-        agent,
-        "Look up reservation AVS-29471835 and tell me when it's due back.",
-    )
-    print(result.final_output)
+
+    print("Avis Rental Support Agent")
+    print("Type your message below. Press Ctrl+C or type 'quit' to exit.\n")
+
+    conversation_history = []
+
+    while True:
+        try:
+            user_input = input("You: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nGoodbye!")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit", "bye"):
+            print("Goodbye!")
+            break
+
+        conversation_history.append({"role": "user", "content": user_input})
+
+        result = Runner.run_sync(agent, conversation_history)
+        response = result.final_output
+
+        conversation_history.append({"role": "assistant", "content": response})
+        print(f"\nAgent: {response}\n")
 
 
 if __name__ == "__main__":
