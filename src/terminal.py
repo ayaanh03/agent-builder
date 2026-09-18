@@ -22,15 +22,11 @@ class ChatMessage(Static):
     """A single chat message bubble."""
 
     def __init__(self, sender: str, text: str, is_agent: bool = False) -> None:
-        self.sender = sender
-        self.is_agent = is_agent
-        super().__init__()
-        self.update(self._render(text))
-
-    def _render(self, text: str) -> str:
-        if self.is_agent:
-            return f"[bold dodger_blue]🚗 Avis Agent[/]\n{text}"
-        return f"[bold green]You[/]\n{text}"
+        if is_agent:
+            markup = f"[bold dodger_blue]🚗 Avis Agent[/]\n{text}"
+        else:
+            markup = f"[bold green]You[/]\n{text}"
+        super().__init__(markup)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +71,7 @@ class AvisApp(App):
 
     #chat-scroll {
         height: 1fr;
-        border: solid dodger_blue;
+        border: solid dodgerblue;
         padding: 0 1;
     }
 
