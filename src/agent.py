@@ -5,6 +5,7 @@ Exports the `agent` object for use by the terminal UI. No main() here.
 import os
 import uuid
 import json
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -169,9 +170,24 @@ def check_vehicle_availability(location: str, vehicle_type: str,
 # Agent definition
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
+def _get_local_tz_name() -> str:
+    """Detect the user's local timezone for display purposes."""
+    try:
+        local_now = datetime.now().astimezone()
+        return local_now.strftime("%Z")  # e.g. "PDT", "EST", "CST"
+    except Exception:
+        return "local time"
+
+
+SYSTEM_PROMPT = f"""\
 You are a friendly, professional Avis car rental support agent. You help customers \
 with extending and cancelling their rentals.
+
+## Timezone
+The customer's local timezone is **{_get_local_tz_name()}**. When presenting any dates \
+or times to the customer, ALWAYS convert them to this timezone and display in a \
+human-friendly format (e.g. "Sunday, June 15 at 2:00 PM PDT"). Never show raw ISO \
+timestamps or UTC times to the customer.
 
 ## What you can do
 - **Look up reservations** by ID
