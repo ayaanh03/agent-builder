@@ -229,7 +229,6 @@ class AvisApp(App):
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("up", "arrow_up", show=False),
         Binding("down", "arrow_down", show=False),
-        Binding("enter", "arrow_enter", show=False, priority=True),
     ]
 
     TITLE = "Avis Rental Support"
@@ -402,17 +401,6 @@ class AvisApp(App):
                 if not group.has_focus:
                     group.focus()
                 group.action_move_down()
-
-    def action_arrow_enter(self) -> None:
-        """Route enter to option group if focused, otherwise let input handle it."""
-        if self._options_active:
-            for group in self.query(OptionGroup):
-                group.action_select()
-                return
-        # If not in options, submit the input field
-        inp = self.query_one("#user-input", Input)
-        if inp.value.strip():
-            inp.action_submit()
 
     def action_quit(self) -> None:
         """Finalize log and exit immediately."""
