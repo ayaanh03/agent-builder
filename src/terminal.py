@@ -376,11 +376,9 @@ class AvisApp(App):
 
 
     def action_quit(self) -> None:
-        """Finalize log and exit."""
-        log_path = self.logger.finalize()
-        if log_path:
-            self.notify(f"Session logged to {log_path}", title="Log saved")
-        super().action_quit()
+        """Finalize log and exit immediately."""
+        self.logger.finalize()
+        self.exit()
 
 
 def main():
