@@ -29,10 +29,10 @@ load_dotenv()
 
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 
-# Production mode: set ENVIRONMENT=production in .env to strip PII from logs.
-# Any other value (or unset) enables full debug logging.
-_ENV = os.environ.get("ENVIRONMENT", "development").lower().strip()
-IS_PRODUCTION = _ENV == "production"
+# Defaults to production (PII-safe). Set ENVIRONMENT=development in .env
+# to enable full debug logging with message content and tool I/O.
+_ENV = os.environ.get("ENVIRONMENT", "production").lower().strip()
+IS_PRODUCTION = _ENV != "development"
 
 # Module-level active logger — set by the terminal when a session starts.
 # Tools can import this and call it without circular deps.
