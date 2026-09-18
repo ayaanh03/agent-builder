@@ -6,8 +6,5 @@ openai>=1.40
 
 python-dotenv>=1.0
 requests>=2.31
-
-# For RAG, add a vector store / embeddings library of your choosing, e.g.:
-#   chromadb        (simple local vector DB)
-#   faiss-cpu       (in-memory similarity search)
-#   numpy           (roll your own cosine similarity)
+tenacity>=8.2
+textual>=0.50
