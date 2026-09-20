@@ -265,7 +265,11 @@ class AvisApp(App):
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-scroll", can_focus=False)
-        yield Input(placeholder="Type your message or select an option...", id="user-input")
+        yield Input(
+            placeholder="Type your message or select an option...",
+            id="user-input",
+            max_length=500,
+        )
         yield Footer()
 
     def on_mount(self) -> None:
