@@ -286,17 +286,27 @@ def search_knowledge_base(query: str) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _card_info_hint(res_data: dict | None) -> str:
+    """Return a card-info reminder string from reservation data, or empty."""
+    if not res_data:
+        return ""
+    card = res_data.get("payment", {}).get("card_on_file", {})
+    if card.get("type") and card.get("last_four"):
+        return f"\n\n💳 Card on file: {card['type']} ending in {card['last_four']}"
+    return ""
+
+
 @function_tool
 def get_extension_quote(reservation_id: str, new_return_datetime: str) -> str:
     """Get a price quote for extending a rental to a new return date/time.
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset (e.g. 2027-06-17T14:00:00-07:00).
     This is a read-only operation — it does not commit the change."""
-    err, _ = _check_reservation_active(reservation_id)
+    err, res_data = _check_reservation_active(reservation_id)
     if err:
         return err
     try:
         data = avis_client.get_quote(reservation_id, "extend", new_return_datetime)
-        return json.dumps(data, indent=2)
+        return json.dumps(data, indent=2) + _card_info_hint(res_data)
     except AvisAPIError as e:
         return f"Error getting quote: {e.message}"
     except AvisAPIUnavailable as e:
@@ -359,7 +369,7 @@ def get_modification_quote(reservation_id: str, new_return_datetime: str,
     """Get a price quote for modifying a rental (changing return time or location).
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset.
     This is a read-only operation — it does not commit the change."""
-    err, _ = _check_reservation_active(reservation_id)
+    err, res_data = _check_reservation_active(reservation_id)
     if err:
         return err
     try:
@@ -367,7 +377,7 @@ def get_modification_quote(reservation_id: str, new_return_datetime: str,
             reservation_id, "modify", new_return_datetime,
             new_return_location=new_return_location or None,
         )
-        return json.dumps(data, indent=2)
+        return json.dumps(data, indent=2) + _card_info_hint(res_data)
     except AvisAPIError as e:
         return f"Error getting quote: {e.message}"
     except AvisAPIUnavailable as e:
