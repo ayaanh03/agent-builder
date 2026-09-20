@@ -367,19 +367,11 @@ def modify_rental(reservation_id: str, email: str, cvv: str, billing_zip: str,
         if e.code == "PAYMENT_DECLINED":
             return "The payment was declined. Please verify your card details or try a different card."
         if e.code == "VEHICLE_UNAVAILABLE":
-            details = e.details
-            alts = details.get("alternative_types_at_location", [])
-            if alts:
-                alt_list = ", ".join(a.get("vehicle_type", "unknown") for a in alts)
-                return (
-                    "Unfortunately, that location cannot accept your vehicle type for return. "
-                    f"Vehicle types they can accept: {alt_list}. "
-                    "You may want to try a nearby location, or I can check availability at other locations for you."
-                )
             return (
                 "Unfortunately, that location cannot accept your vehicle type for return. "
-                "I can check nearby locations that can accept your vehicle, or you can contact "
-                "Avis Customer Service at 1-800-XXX-XXXX for assistance."
+                "Use check_vehicle_availability to find nearby locations that can accept "
+                "this vehicle type, or direct the customer to Avis Customer Service at "
+                "1-800-XXX-XXXX."
             )
         return f"Modification failed: {e.message}"
     except AvisAPIUnavailable as e:
