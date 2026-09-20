@@ -266,10 +266,11 @@ class AvisApp(App):
         super().__init__()
         self._options_active = False
 
-        # SDK session handles conversation history automatically
+        # Session created lazily in the worker thread to avoid SQLite
+        # cross-thread issues (connection must be used on the thread that
+        # created it).
         self._session_id = str(uuid.uuid4())[:12]
-        db_path = str(SESSIONS_DIR / f"{self._session_id}.db")
-        self._session = SQLiteSession(self._session_id, db_path)
+        self._session: SQLiteSession | None = None
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-scroll", can_focus=False)
@@ -380,6 +381,12 @@ class AvisApp(App):
         """
         from agent import agent
 
+        # Create session lazily on the worker thread so the SQLite
+        # connection lives on the same thread that uses it.
+        if self._session is None:
+            db_path = str(SESSIONS_DIR / f"{self._session_id}.db")
+            self._session = SQLiteSession(self._session_id, db_path)
+
         try:
             result = Runner.run_sync(
                 agent,
@@ -390,8 +397,11 @@ class AvisApp(App):
             response = result.final_output
         except InputGuardrailTripwireTriggered:
             response = _GUARDRAIL_RESPONSE
-        except Exception as e:
-            response = f"I'm sorry, something went wrong: {e}\nPlease try again."
+        except Exception:
+            response = (
+                "I'm sorry, something went wrong on our end. "
+                "Please try again in a moment."
+            )
 
         self.call_from_thread(self._show_response, response)
 
