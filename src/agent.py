@@ -114,6 +114,43 @@ topic_guardrail = InputGuardrail(guardrail_function=_check_topic, name="topic_ch
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _check_reservation_active(reservation_id: str) -> str | None:
+    """Return an error message if the reservation can't be modified, else None.
+
+    Checks both the status field and whether the return date is in the past
+    (the mock API may report 'active' even after the car has been returned).
+    """
+    try:
+        data = avis_client.get_reservation(reservation_id)
+    except AvisAPIError as e:
+        return f"Error looking up reservation: {e.message}"
+    except AvisAPIUnavailable as e:
+        return str(e)
+
+    status = data.get("status", "").lower()
+    if status != "active":
+        return f"This reservation is {status} and can no longer be modified."
+
+    return_dt = data.get("dates", {}).get("current_return_datetime", "")
+    if return_dt:
+        try:
+            ret = datetime.fromisoformat(return_dt)
+            if ret < datetime.now(timezone.utc):
+                return (
+                    "This rental's return date has already passed "
+                    f"({return_dt}). The vehicle has been returned and the "
+                    "reservation can no longer be extended or modified."
+                )
+        except ValueError:
+            pass  # unparseable date — let the API decide
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Tools — clean, no manual logging (SDK tracing handles it)
 # ---------------------------------------------------------------------------
 
@@ -148,6 +185,9 @@ def get_extension_quote(reservation_id: str, new_return_datetime: str) -> str:
     """Get a price quote for extending a rental to a new return date/time.
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset (e.g. 2027-06-17T14:00:00-07:00).
     This is a read-only operation — it does not commit the change."""
+    err = _check_reservation_active(reservation_id)
+    if err:
+        return err
     try:
         data = avis_client.get_quote(reservation_id, "extend", new_return_datetime)
         return json.dumps(data, indent=2)
@@ -163,6 +203,9 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
     """Execute a rental extension. Requires customer verification (email) and
     payment details (CVV and billing zip). Always get a quote first and confirm
     with the customer before calling this."""
+    err = _check_reservation_active(reservation_id)
+    if err:
+        return err
     idem_key = f"{reservation_id}-extend-{uuid.uuid4()}"
     try:
         data = avis_client.extend_reservation(
@@ -179,6 +222,9 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
 def cancel_rental(reservation_id: str, email: str, reason: str = "") -> str:
     """Cancel an Avis reservation. Requires customer email for verification.
     Returns cancellation details including any refund or penalty amounts."""
+    err = _check_reservation_active(reservation_id)
+    if err:
+        return err
     idem_key = f"{reservation_id}-cancel-{uuid.uuid4()}"
     try:
         data = avis_client.cancel_reservation(reservation_id, email, reason, idem_key)
