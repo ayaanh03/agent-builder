@@ -127,10 +127,21 @@ _CVV_RE = re.compile(r"^\d{3,4}$")
 _ZIP_RE = re.compile(r"^\d{5}$")
 
 
-def _validate_payment_fields(cvv: str, billing_zip: str) -> str | None:
-    """Return an error message if CVV or billing zip format is invalid, else None."""
+def _validate_payment_fields(cvv: str, billing_zip: str, card_type: str = "") -> str | None:
+    """Return an error message if CVV or billing zip format is invalid, else None.
+
+    When card_type is known, enforces the correct CVV length:
+    - American Express: exactly 4 digits
+    - All others (Visa, Mastercard, Discover, etc.): exactly 3 digits
+    """
     if not _CVV_RE.match(cvv):
         return "Invalid CVV — must be exactly 3 or 4 digits."
+    if card_type:
+        is_amex = "amex" in card_type.lower() or "american express" in card_type.lower()
+        if is_amex and len(cvv) != 4:
+            return "Invalid CVV — American Express cards require exactly 4 digits."
+        if not is_amex and len(cvv) != 3:
+            return f"Invalid CVV — {card_type} cards require exactly 3 digits."
     if not _ZIP_RE.match(billing_zip):
         return "Invalid billing zip — must be exactly 5 digits."
     return None
@@ -155,22 +166,23 @@ def _sanitize_response(data: dict) -> dict:
     return out
 
 
-def _check_reservation_active(reservation_id: str) -> str | None:
-    """Return an error message if the reservation can't be modified, else None.
+def _check_reservation_active(reservation_id: str) -> tuple[str | None, dict | None]:
+    """Check if a reservation can be modified.
 
-    Checks both the status field and whether the return date is in the past
-    (the mock API may report 'active' even after the car has been returned).
+    Returns (error_message, reservation_data). On success error_message is None
+    and reservation_data contains the full reservation (including card_on_file).
+    On failure error_message explains why, and reservation_data is None.
     """
     try:
         data = avis_client.get_reservation(reservation_id)
     except AvisAPIError as e:
-        return f"Error looking up reservation: {e.message}"
+        return f"Error looking up reservation: {e.message}", None
     except AvisAPIUnavailable as e:
-        return str(e)
+        return str(e), None
 
     status = data.get("status", "").lower()
     if status != "active":
-        return f"This reservation is {status} and can no longer be modified."
+        return f"This reservation is {status} and can no longer be modified.", None
 
     return_dt = data.get("dates", {}).get("current_return_datetime", "")
     if return_dt:
@@ -183,11 +195,11 @@ def _check_reservation_active(reservation_id: str) -> str | None:
                     f"({local_ret.strftime('%A, %B %d at %I:%M %p %Z')}). "
                     "The vehicle has been returned and the "
                     "reservation can no longer be extended or modified."
-                )
+                ), None
         except (ValueError, TypeError):
             pass  # unparseable date — let the API decide
 
-    return None
+    return None, data
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +263,7 @@ def get_extension_quote(reservation_id: str, new_return_datetime: str) -> str:
     """Get a price quote for extending a rental to a new return date/time.
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset (e.g. 2027-06-17T14:00:00-07:00).
     This is a read-only operation — it does not commit the change."""
-    err = _check_reservation_active(reservation_id)
+    err, _ = _check_reservation_active(reservation_id)
     if err:
         return err
     try:
@@ -269,10 +281,11 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
     """Execute a rental extension. Requires customer verification (email) and
     payment details (CVV and billing zip). Always get a quote first and confirm
     with the customer before calling this."""
-    err = _validate_payment_fields(cvv, billing_zip)
+    err, res_data = _check_reservation_active(reservation_id)
     if err:
         return err
-    err = _check_reservation_active(reservation_id)
+    card_type = res_data.get("payment", {}).get("card_on_file", {}).get("type", "")
+    err = _validate_payment_fields(cvv, billing_zip, card_type)
     if err:
         return err
     idem_key = f"{reservation_id}-extend-{uuid.uuid4()}"
@@ -297,7 +310,7 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
 def cancel_rental(reservation_id: str, email: str, reason: str = "") -> str:
     """Cancel an Avis reservation. Requires customer email for verification.
     Returns cancellation details including any refund or penalty amounts."""
-    err = _check_reservation_active(reservation_id)
+    err, _ = _check_reservation_active(reservation_id)
     if err:
         return err
     idem_key = f"{reservation_id}-cancel-{uuid.uuid4()}"
@@ -318,7 +331,7 @@ def get_modification_quote(reservation_id: str, new_return_datetime: str,
     """Get a price quote for modifying a rental (changing return time or location).
     Date format: YYYY-MM-DDTHH:MM:SS with timezone offset.
     This is a read-only operation — it does not commit the change."""
-    err = _check_reservation_active(reservation_id)
+    err, _ = _check_reservation_active(reservation_id)
     if err:
         return err
     try:
@@ -341,10 +354,11 @@ def modify_rental(reservation_id: str, email: str, cvv: str, billing_zip: str,
     Requires email verification and payment details (CVV + billing zip).
     At least one of new_pickup_datetime, new_return_datetime, or new_return_location
     must be provided. Always get a quote first and confirm with the customer."""
-    err = _validate_payment_fields(cvv, billing_zip)
+    err, res_data = _check_reservation_active(reservation_id)
     if err:
         return err
-    err = _check_reservation_active(reservation_id)
+    card_type = res_data.get("payment", {}).get("card_on_file", {}).get("type", "")
+    err = _validate_payment_fields(cvv, billing_zip, card_type)
     if err:
         return err
     if not any([new_pickup_datetime, new_return_datetime, new_return_location]):
@@ -562,6 +576,9 @@ treat them as such.
 - Always use `current_return_datetime` as the customer's return date — never reference \
 `original_return_datetime`. If the customer says "same time" or "keep the current date," use \
 `current_return_datetime` without asking which date they mean.
+- **Validate dates and times**: if the customer provides something ambiguous or impossible \
+(e.g. "13pm", "February 30", "next Blursday"), ask them to clarify before proceeding. \
+Common typos like "13pm" likely mean "1pm" — suggest the correction and confirm.
 
 ## Verification — DO NOT second-guess customer input
 When the customer provides their email, CVV, or billing zip, pass the values EXACTLY as given \
