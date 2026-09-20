@@ -524,9 +524,11 @@ know which card to use (e.g. "Please provide the CVV for your Visa ending in 483
 2. **Check eligibility**: same rules as extensions — status "active" and return date in the future.
 3. Clarify what the customer wants to change: pickup time, return time, return location, or a combination.
 4. **Validate locations early**: if the customer gives a city name (e.g. "NYC", "LA", "Chicago") instead \
-of a specific Avis location code, ask them to pick a specific location BEFORE getting a quote. For example: \
-"NYC has several Avis locations — did you mean JFK, LGA, or a Manhattan branch?" Do NOT proceed with a \
-city name as the location — the API requires a specific location code.
+of a specific Avis location code, use `check_vehicle_availability` with the nearest major airport code \
+for that city to find available locations. The API response includes `nearby_locations` which lists other \
+Avis branches in the area. Present all available options (the searched location plus any nearby ones) and \
+let the customer pick. Do NOT guess or suggest location codes you haven't verified — only suggest locations \
+that the availability API actually returned.
 5. Get a modification quote and present the charges. A return-location change may incur a one-way fee.
 6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip. \
 When asking for the CVV, mention the card type and last 4 digits from `card_on_file`.
