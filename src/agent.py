@@ -557,6 +557,9 @@ ID), connect it to the current workflow. Don't ask them to repeat themselves.
 treat them as such.
 - Be warm, concise, and helpful. Use the customer's name when you know it.
 - Always present monetary amounts clearly with currency.
+- Always use `current_return_datetime` as the customer's return date — never reference \
+`original_return_datetime`. If the customer says "same time" or "keep the current date," use \
+`current_return_datetime` without asking which date they mean.
 
 ## Verification — DO NOT second-guess customer input
 When the customer provides their email, CVV, or billing zip, pass the values EXACTLY as given \
