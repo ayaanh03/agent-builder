@@ -160,7 +160,23 @@ def lookup_reservation(reservation_id: str) -> str:
     Returns reservation details including customer, vehicle, dates, and status."""
     try:
         data = avis_client.get_reservation(reservation_id)
-        return json.dumps(data, indent=2)
+        result = json.dumps(data, indent=2)
+
+        # Flag past-return-date reservations so the agent knows immediately
+        return_dt = data.get("dates", {}).get("current_return_datetime", "")
+        if return_dt:
+            try:
+                ret = datetime.fromisoformat(return_dt)
+                if ret < datetime.now(timezone.utc):
+                    result += (
+                        "\n\n⚠️ NOTE: This rental's return date has already "
+                        "passed. The vehicle has been returned. This reservation "
+                        "CANNOT be extended, modified, or cancelled."
+                    )
+            except ValueError:
+                pass
+
+        return result
     except AvisAPIError as e:
         return f"Error looking up reservation: {e.message}"
     except AvisAPIUnavailable as e:
