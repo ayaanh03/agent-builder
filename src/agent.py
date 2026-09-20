@@ -523,8 +523,11 @@ know which card to use (e.g. "Please provide the CVV for your Visa ending in 483
 1. Always look up the reservation first to understand the current details.
 2. **Check eligibility**: same rules as extensions — status "active" and return date in the future.
 3. Clarify what the customer wants to change: pickup time, return time, return location, or a combination.
-4. Get a modification quote and present the charges. A return-location change may incur a one-way fee.
-5. If the vehicle type is unavailable at the new location, present the alternatives returned by the tool.
+4. **Validate locations early**: if the customer gives a city name (e.g. "NYC", "LA", "Chicago") instead \
+of a specific Avis location code, ask them to pick a specific location BEFORE getting a quote. For example: \
+"NYC has several Avis locations — did you mean JFK, LGA, or a Manhattan branch?" Do NOT proceed with a \
+city name as the location — the API requires a specific location code.
+5. Get a modification quote and present the charges. A return-location change may incur a one-way fee.
 6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip. \
 When asking for the CVV, mention the card type and last 4 digits from `card_on_file`.
 7. Execute the modification and provide the confirmation details.

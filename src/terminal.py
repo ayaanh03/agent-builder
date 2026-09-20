@@ -165,10 +165,24 @@ class OptionGroup(Static, can_focus=True):
 # Chat bubble
 # ---------------------------------------------------------------------------
 
+def _md_to_rich(text: str) -> str:
+    """Convert basic Markdown formatting to Rich markup for Textual display.
+
+    Handles **bold** and *italic* — the main patterns the LLM uses.
+    """
+    import re
+    # Bold: **text** → [bold]text[/bold]  (process before italic)
+    text = re.sub(r'\*\*(.+?)\*\*', r'[bold]\1[/bold]', text)
+    # Italic: *text* → [italic]text[/italic]
+    text = re.sub(r'\*(.+?)\*', r'[italic]\1[/italic]', text)
+    return text
+
+
 class ChatMessage(Static):
     """A single chat message in the scrollable log."""
 
     def __init__(self, text: str, is_agent: bool = False) -> None:
+        text = _md_to_rich(text)
         if is_agent:
             markup = f"[bold dodger_blue]🚗 Avis Agent[/]\n{text}"
         else:
