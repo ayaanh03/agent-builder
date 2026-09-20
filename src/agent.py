@@ -467,6 +467,13 @@ def check_vehicle_availability(location: str, vehicle_type: str,
         data = avis_client.check_availability(location, vehicle_type, start_date, end_date)
         return json.dumps(data, indent=2)
     except AvisAPIError as e:
+        if e.status_code == 404 or "not found" in e.message.lower() or "invalid" in e.message.lower():
+            return (
+                f"Location '{location}' was not found in the Avis system. "
+                "This location is not available for online booking. "
+                "Let the customer know and offer to help with a different location, "
+                "or direct them to Avis Customer Service at 1-800-XXX-XXXX."
+            )
         return f"Availability check failed: {e.message}"
     except AvisAPIUnavailable as e:
         return str(e)
@@ -579,6 +586,11 @@ for that city to find available locations. The API response includes `nearby_loc
 Avis branches in the area. Present all available options (the searched location plus any nearby ones) and \
 let the customer pick. Do NOT guess or suggest location codes you haven't verified — only suggest locations \
 that the availability API actually returned.
+   **If a location isn't found**: not all locations are in our system. Be transparent with the customer — \
+tell them that location isn't currently available in the system. Then ask if they'd like to try a different \
+location, or direct them to Avis Customer Service at **1-800-XXX-XXXX** where an agent can check all locations. \
+Do NOT repeatedly ask for "another airport code" — the customer already told you where they want to go. \
+Be helpful, not a broken record.
 5. Get a modification quote and present the charges. A return-location change may incur a one-way fee.
 6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip. \
 When asking for the CVV, mention the card type and last 4 digits from `card_on_file`.
