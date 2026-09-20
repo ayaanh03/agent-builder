@@ -2,8 +2,17 @@
 
 Single contiguous scrollable chat window. Options appear inline as clickable
 text items that also respond to number keys and arrow+enter selection.
+
+Uses SDK built-in features:
+- SQLiteSession for automatic conversation history persistence
+- Built-in tracing for tool call / LLM observability (trace_include_sensitive_data=False)
+- InputGuardrails for off-topic detection (defined in agent.py)
 """
 from __future__ import annotations
+
+import os
+import uuid
+from pathlib import Path
 
 from textual import work, on
 from textual.app import App, ComposeResult
@@ -13,11 +22,31 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
 
-import time
+from agents import Runner, RunConfig, SQLiteSession, InputGuardrailTripwireTriggered
 
-from agents import Runner
 
-from chat_logger import ChatLogger, set_logger
+# ---------------------------------------------------------------------------
+# Session & tracing config
+# ---------------------------------------------------------------------------
+
+SESSIONS_DIR = Path(__file__).resolve().parent.parent / "sessions"
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+# PII-safe tracing: SDK traces tool calls, LLM generations, guardrails
+# automatically — but with sensitive data excluded from trace payloads.
+_IS_PRODUCTION = os.environ.get("ENVIRONMENT", "production").lower().strip() != "development"
+
+RUN_CONFIG = RunConfig(
+    trace_include_sensitive_data=not _IS_PRODUCTION,
+    workflow_name="Avis Rental Support",
+)
+
+# Off-topic guardrail response (matches agent.py)
+_GUARDRAIL_RESPONSE = (
+    "I'm only able to help with Avis rental questions — things like extending "
+    "or cancelling your reservation, or looking up your rental details. "
+    "Is there anything like that I can help you with?"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -235,12 +264,12 @@ class AvisApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        self.conversation_history: list[dict] = []
         self._options_active = False
-        self._msg_source = "typed"  # tracks how the current message was sent
-        self._agent_start: float = 0
-        self.logger = ChatLogger()
-        set_logger(self.logger)
+
+        # SDK session handles conversation history automatically
+        self._session_id = str(uuid.uuid4())[:12]
+        db_path = str(SESSIONS_DIR / f"{self._session_id}.db")
+        self._session = SQLiteSession(self._session_id, db_path)
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-scroll", can_focus=False)
@@ -292,7 +321,6 @@ class AvisApp(App):
     def on_option_selected(self, event: OptionItem.Selected) -> None:
         """Handle an option being selected (click, number, or enter)."""
         self._dismiss_options()
-        self._msg_source = "option_click"
         self._send_message(event.text)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -307,12 +335,10 @@ class AvisApp(App):
             idx = int(text) - 1
             if 0 <= idx < len(MENU_OPTIONS):
                 self._dismiss_options()
-                self._msg_source = "option_number"
                 self._send_message(MENU_OPTIONS[idx][1])
                 return
 
         self._dismiss_options()
-        self._msg_source = "typed"
         self._send_message(text)
 
     def _send_message(self, text: str) -> None:
@@ -332,9 +358,6 @@ class AvisApp(App):
         chat.mount(msg)
         chat.scroll_end(animate=False)
 
-        self.conversation_history.append({"role": "user", "content": text})
-        self.logger.log_user_message(text, source=self._msg_source)
-
         # Show thinking indicator
         thinking = Static("[dim italic]🤔 Thinking...[/]")
         thinking.add_class("thinking")
@@ -344,25 +367,32 @@ class AvisApp(App):
 
         # Disable input while processing
         inp.disabled = True
-        self._agent_start = time.monotonic()
 
-        self._run_agent()
+        self._run_agent(text)
 
     @work(thread=True)
-    def _run_agent(self) -> None:
-        """Run the agent in a background thread."""
+    def _run_agent(self, user_text: str) -> None:
+        """Run the agent in a background thread.
+
+        SQLiteSession automatically loads prior conversation history and
+        saves the new turn (user message + assistant response + tool calls).
+        Built-in tracing records everything to the OpenAI Traces dashboard.
+        """
         from agent import agent
 
         try:
-            result = Runner.run_sync(agent, self.conversation_history)
+            result = Runner.run_sync(
+                agent,
+                user_text,
+                session=self._session,
+                run_config=RUN_CONFIG,
+            )
             response = result.final_output
+        except InputGuardrailTripwireTriggered:
+            response = _GUARDRAIL_RESPONSE
         except Exception as e:
             response = f"I'm sorry, something went wrong: {e}\nPlease try again."
-            self.logger.log_error("agent_exception", str(e))
 
-        duration_ms = int((time.monotonic() - self._agent_start) * 1000)
-        self.conversation_history.append({"role": "assistant", "content": response})
-        self.logger.log_agent_message(response, duration_ms=duration_ms)
         self.call_from_thread(self._show_response, response)
 
     def _show_response(self, text: str) -> None:
@@ -385,7 +415,6 @@ class AvisApp(App):
         inp.disabled = False
         inp.focus()
 
-
     def action_arrow_up(self) -> None:
         """Route up arrow to option group if active, otherwise do nothing."""
         if self._options_active:
@@ -403,8 +432,7 @@ class AvisApp(App):
                 group.action_move_down()
 
     def action_quit(self) -> None:
-        """Finalize log and exit immediately."""
-        self.logger.finalize()
+        """Exit immediately. Session data persists in SQLite automatically."""
         self.exit()
 
 
