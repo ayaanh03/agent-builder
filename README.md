@@ -69,7 +69,8 @@ SDK `InputGuardrail` with a lightweight classifier agent, scoped to the first me
 ## How to Run
 
 ```bash
-# 1. Create and activate a virtual environment (Python 3.10+ / PyPy 3.11)
+# 1. Create and activate a virtual environment
+#    Requires Python 3.9+ (tested with Python 3.9, 3.11, and PyPy 3.11)
 python3 -m venv .venv
 source .venv/bin/activate
 

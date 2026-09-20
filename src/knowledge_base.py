@@ -3,6 +3,8 @@
 No external vector DB or embeddings API needed — the corpus is small enough
 for in-memory cosine similarity over word-frequency vectors.
 """
+from __future__ import annotations
+
 import json
 import math
 import os

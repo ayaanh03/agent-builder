@@ -3,6 +3,7 @@
 Handles transient 5xx errors with exponential backoff. Write operations accept
 an idempotency key to prevent duplicate side effects on retry.
 """
+from __future__ import annotations
 import os
 import json
 import logging
