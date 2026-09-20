@@ -191,6 +191,44 @@ def cancel_reservation(reservation_id: str, email: str,
         raise AvisAPIUnavailable()
 
 
+def modify_reservation(reservation_id: str, email: str, cvv: str, billing_zip: str,
+                       new_pickup_datetime: str | None = None,
+                       new_return_datetime: str | None = None,
+                       new_return_location: str | None = None,
+                       idempotency_key: str = "") -> dict:
+    """Modify a reservation (change time or return location)."""
+    body: dict = {
+        "email": email,
+        "payment": {"use_card_on_file": True, "cvv": cvv, "billing_zip": billing_zip},
+    }
+    if new_pickup_datetime:
+        body["new_pickup_datetime"] = new_pickup_datetime
+    if new_return_datetime:
+        body["new_return_datetime"] = new_return_datetime
+    if new_return_location:
+        body["new_return_location"] = new_return_location
+    try:
+        return _write_request(
+            "POST", f"/reservations/{reservation_id}/modify", body,
+            idempotency_key or None
+        )
+    except _RetryableError:
+        raise AvisAPIUnavailable()
+
+
+def upgrade_customer(customer_id: str, email: str,
+                     idempotency_key: str = "") -> dict:
+    """Upgrade a standard customer to Avis Preferred."""
+    body = {"email": email}
+    try:
+        return _write_request(
+            "POST", f"/customers/{customer_id}/upgrade", body,
+            idempotency_key or None
+        )
+    except _RetryableError:
+        raise AvisAPIUnavailable()
+
+
 # ---------------------------------------------------------------------------
 # CLI test
 # ---------------------------------------------------------------------------

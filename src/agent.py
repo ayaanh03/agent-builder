@@ -301,6 +301,109 @@ def cancel_rental(reservation_id: str, email: str, reason: str = "") -> str:
 
 
 @function_tool
+def get_modification_quote(reservation_id: str, new_return_datetime: str,
+                           new_return_location: str = "") -> str:
+    """Get a price quote for modifying a rental (changing return time or location).
+    Date format: YYYY-MM-DDTHH:MM:SS with timezone offset.
+    This is a read-only operation — it does not commit the change."""
+    err = _check_reservation_active(reservation_id)
+    if err:
+        return err
+    try:
+        data = avis_client.get_quote(
+            reservation_id, "modify", new_return_datetime,
+            new_return_location=new_return_location or None,
+        )
+        return json.dumps(data, indent=2)
+    except AvisAPIError as e:
+        return f"Error getting quote: {e.message}"
+    except AvisAPIUnavailable as e:
+        return str(e)
+
+
+@function_tool
+def modify_rental(reservation_id: str, email: str, cvv: str, billing_zip: str,
+                  new_pickup_datetime: str = "", new_return_datetime: str = "",
+                  new_return_location: str = "") -> str:
+    """Modify a reservation — change pickup/return time or return location.
+    Requires email verification and payment details (CVV + billing zip).
+    At least one of new_pickup_datetime, new_return_datetime, or new_return_location
+    must be provided. Always get a quote first and confirm with the customer."""
+    err = _validate_payment_fields(cvv, billing_zip)
+    if err:
+        return err
+    err = _check_reservation_active(reservation_id)
+    if err:
+        return err
+    if not any([new_pickup_datetime, new_return_datetime, new_return_location]):
+        return "At least one change must be specified (new pickup time, return time, or return location)."
+    idem_key = f"{reservation_id}-modify-{uuid.uuid4()}"
+    try:
+        data = avis_client.modify_reservation(
+            reservation_id, email, cvv, billing_zip,
+            new_pickup_datetime=new_pickup_datetime or None,
+            new_return_datetime=new_return_datetime or None,
+            new_return_location=new_return_location or None,
+            idempotency_key=idem_key,
+        )
+        return json.dumps(_sanitize_response(data), indent=2)
+    except AvisAPIError as e:
+        if e.code == "VERIFICATION_FAILED":
+            return "Verification failed. The email provided does not match our records."
+        if e.code == "PAYMENT_VALIDATION_ERROR":
+            return "Payment verification failed. Please double-check the CVV and billing zip."
+        if e.code == "PAYMENT_DECLINED":
+            return "The payment was declined. Please verify your card details or try a different card."
+        if e.code == "VEHICLE_UNAVAILABLE":
+            details = e.details
+            alts = details.get("alternative_types_at_location", [])
+            if alts:
+                alt_list = ", ".join(a.get("vehicle_type", "unknown") for a in alts)
+                return f"Your vehicle type is not available at the new location. Available types: {alt_list}"
+            return "Your vehicle type is not available at the new location."
+        return f"Modification failed: {e.message}"
+    except AvisAPIUnavailable as e:
+        return str(e)
+
+
+@function_tool
+def upgrade_membership(reservation_id: str, email: str) -> str:
+    """Upgrade a standard customer to Avis Preferred membership.
+    Requires the customer_id (from reservation lookup) and email verification.
+    Only works for customers with 'standard' membership — 'avis_preferred' members
+    are already upgraded."""
+    # Look up reservation to get customer_id
+    try:
+        res = avis_client.get_reservation(reservation_id)
+    except AvisAPIError as e:
+        return f"Error looking up reservation: {e.message}"
+    except AvisAPIUnavailable as e:
+        return str(e)
+
+    if res.get("membership_status") == "avis_preferred":
+        return "This customer is already an Avis Preferred member."
+
+    customer_id = res.get("customer_id")
+    if not customer_id:
+        return "Could not determine the customer ID from this reservation."
+
+    idem_key = f"{customer_id}-upgrade-{uuid.uuid4()}"
+    try:
+        data = avis_client.upgrade_customer(customer_id, email, idem_key)
+        return json.dumps(_sanitize_response(data), indent=2)
+    except AvisAPIError as e:
+        if e.code == "VERIFICATION_FAILED":
+            return "Verification failed. The email provided does not match our records."
+        if e.code == "ALREADY_PREFERRED":
+            return "This customer is already an Avis Preferred member."
+        if e.code == "NOT_ELIGIBLE":
+            return "This customer is not currently eligible for an upgrade to Avis Preferred."
+        return f"Upgrade failed: {e.message}"
+    except AvisAPIUnavailable as e:
+        return str(e)
+
+
+@function_tool
 def check_vehicle_availability(location: str, vehicle_type: str,
                                start_date: str, end_date: str) -> str:
     """Check vehicle availability at a location for a date range.
@@ -371,10 +474,17 @@ Do NOT guess whether a reservation's return date has passed. The tools will incl
 ⚠️ warning if the return date is in the past. If no warning is present, the reservation \
 is still active and eligible for changes.
 
+## Membership acknowledgment
+When you look up a reservation and the customer has `membership_status: "avis_preferred"`, \
+thank them for their loyalty — e.g. "Thank you for being an Avis Preferred member!" Do this \
+naturally as part of presenting the reservation details, not as a separate message.
+
 ## What you can do
 - **Look up reservations** by ID
 - **Extend rentals** — push out the return date/time
+- **Modify rentals** — change pickup/return time or return location
 - **Cancel reservations** — with refund/penalty details per policy
+- **Upgrade membership** — upgrade standard customers to Avis Preferred
 - **Answer policy questions** using the knowledge base
 
 ## How to handle requests
@@ -397,6 +507,16 @@ When asking for the CVV, mention the card type and last 4 digits from `card_on_f
 know which card to use (e.g. "Please provide the CVV for your Visa ending in 4832").
 7. Execute the extension and provide the confirmation number.
 
+### Modifications (change time or location)
+1. Always look up the reservation first to understand the current details.
+2. **Check eligibility**: same rules as extensions — status "active" and return date in the future.
+3. Clarify what the customer wants to change: pickup time, return time, return location, or a combination.
+4. Get a modification quote and present the charges. A return-location change may incur a one-way fee.
+5. If the vehicle type is unavailable at the new location, present the alternatives returned by the tool.
+6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip. \
+When asking for the CVV, mention the card type and last 4 digits from `card_on_file`.
+7. Execute the modification and provide the confirmation details.
+
 ### Cancellations
 1. Look up the reservation first.
 2. **Check eligibility**: the reservation must have status "active". If it's already \
@@ -404,6 +524,13 @@ completed, cancelled, or the return date has passed, inform the customer accordi
 3. Search the knowledge base for cancellation policies and explain any penalties.
 4. After the customer confirms they want to proceed, collect their email for verification.
 5. Execute the cancellation and provide refund details.
+
+### Upgrades (standard → Avis Preferred)
+1. Look up the reservation first to check the customer's current `membership_status`.
+2. If already `avis_preferred`, let them know they're already a Preferred member.
+3. If `standard`, explain the benefits of Avis Preferred (use search_knowledge_base if needed).
+4. After the customer confirms they want to upgrade, collect their email for verification.
+5. Execute the upgrade using the `customer_id` from the reservation lookup.
 
 ## Conversation style
 - When the customer provides information in context (a date, a confirmation, a reservation \
@@ -421,8 +548,6 @@ question, second-guess, or refuse to proceed because a price seems surprising. P
 calculated by the system (e.g. daily rates mean different times on the same day cost the same). \
 Your job is to relay the information, not audit it.
 - If the system is temporarily unavailable, apologize and suggest trying again shortly.
-- For requests outside your scope (modifications, upgrades, etc.), let the customer know \
-those features are coming soon and suggest they contact Avis directly at 1-800-633-3469.
 """
 
 
@@ -434,7 +559,10 @@ agent = Agent(
         search_knowledge_base,
         get_extension_quote,
         extend_rental,
+        get_modification_quote,
+        modify_rental,
         cancel_rental,
+        upgrade_membership,
         check_vehicle_availability,
     ],
     input_guardrails=[topic_guardrail],
