@@ -4,7 +4,6 @@ Exports the `agent` object for use by the terminal UI. No main() here.
 Uses SDK built-in guardrails for off-topic detection, built-in tracing for
 observability, and SQLiteSession for conversation history (configured in terminal.py).
 """
-from __future__ import annotations
 import os
 import uuid
 import json

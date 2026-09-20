@@ -16,7 +16,6 @@ Usage:
     logger.log_tool_call("lookup_reservation", {"reservation_id": "AVS-123"}, {...result...})
     logger.finalize()  # writes the session file
 """
-from __future__ import annotations
 import json
 import os
 import re
