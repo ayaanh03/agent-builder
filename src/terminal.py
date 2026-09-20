@@ -98,6 +98,8 @@ class OptionGroup(Static, can_focus=True):
         Binding("2", "pick_2", show=False),
         Binding("3", "pick_3", show=False),
         Binding("4", "pick_4", show=False),
+        Binding("5", "pick_5", show=False),
+        Binding("6", "pick_6", show=False),
     ]
 
     def __init__(self, options: list[tuple[str, str]]) -> None:
@@ -147,6 +149,12 @@ class OptionGroup(Static, can_focus=True):
     def action_pick_4(self) -> None:
         self._select_by_number(4)
 
+    def action_pick_5(self) -> None:
+        self._select_by_number(5)
+
+    def action_pick_6(self) -> None:
+        self._select_by_number(6)
+
     def _select_by_number(self, num: int) -> None:
         items = list(self.query(OptionItem))
         if 0 < num <= len(items):
@@ -174,7 +182,9 @@ class ChatMessage(Static):
 
 MENU_OPTIONS = [
     ("🔄 Extend my rental", "I'd like to extend my rental."),
+    ("✏️  Modify my reservation", "I'd like to modify my reservation."),
     ("❌ Cancel my reservation", "I need to cancel my reservation."),
+    ("⭐ Upgrade to Avis Preferred", "I'd like to upgrade to Avis Preferred."),
     ("🔍 Look up a reservation", "I'd like to look up my reservation."),
     ("❓ Ask about policies", "I have a question about Avis rental policies."),
 ]
@@ -282,8 +292,9 @@ class AvisApp(App):
             "[bold white]  🚗  Welcome to Avis Rental Support[/]\n"
             "\n"
             "  [dim]Hi there! I'm your Avis rental assistant.[/]\n"
-            "  [dim]I can help you extend or cancel your rental,[/]\n"
-            "  [dim]look up reservations, and answer policy questions.[/]\n"
+            "  [dim]I can help you extend, modify, or cancel your rental,[/]\n"
+            "  [dim]upgrade your membership, look up reservations,[/]\n"
+            "  [dim]and answer policy questions.[/]\n"
             "\n"
             "[bold dodger_blue]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]"
         )
@@ -327,7 +338,7 @@ class AvisApp(App):
         event.input.value = ""
 
         # If options are showing and user typed a number, select that option
-        if self._options_active and text in ("1", "2", "3", "4"):
+        if self._options_active and text in ("1", "2", "3", "4", "5", "6"):
             idx = int(text) - 1
             if 0 <= idx < len(MENU_OPTIONS):
                 self._dismiss_options()
