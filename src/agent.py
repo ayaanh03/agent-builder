@@ -117,6 +117,30 @@ topic_guardrail = InputGuardrail(guardrail_function=_check_topic, name="topic_ch
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Fields to strip from write-operation responses. The agent should never see
+# expected verification values in tool output — only pass/fail for verification.
+_WRITE_REDACT_KEYS = {"email", "cvv", "billing_zip", "customer_email"}
+
+
+def _sanitize_response(data: dict) -> dict:
+    """Strip verification/PII fields from a write API response.
+
+    Keeps charges, confirmation numbers, extension details, etc. — only
+    removes fields that could leak expected verification values.
+    """
+    out = {}
+    for k, v in data.items():
+        if k in _WRITE_REDACT_KEYS:
+            continue
+        if isinstance(v, dict):
+            out[k] = _sanitize_response(v)
+        elif isinstance(v, list):
+            out[k] = [_sanitize_response(i) if isinstance(i, dict) else i for i in v]
+        else:
+            out[k] = v
+    return out
+
+
 def _check_reservation_active(reservation_id: str) -> str | None:
     """Return an error message if the reservation can't be modified, else None.
 
@@ -227,8 +251,14 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
         data = avis_client.extend_reservation(
             reservation_id, new_return_datetime, email, cvv, billing_zip, idem_key
         )
-        return json.dumps(data, indent=2)
+        return json.dumps(_sanitize_response(data), indent=2)
     except AvisAPIError as e:
+        if e.code == "VERIFICATION_FAILED":
+            return "Verification failed. The email provided does not match our records."
+        if e.code == "PAYMENT_VALIDATION_ERROR":
+            return "Payment verification failed. Please double-check the CVV and billing zip."
+        if e.code == "PAYMENT_DECLINED":
+            return "The payment was declined. Please verify your card details or try a different card."
         return f"Extension failed: {e.message}"
     except AvisAPIUnavailable as e:
         return str(e)
@@ -244,8 +274,10 @@ def cancel_rental(reservation_id: str, email: str, reason: str = "") -> str:
     idem_key = f"{reservation_id}-cancel-{uuid.uuid4()}"
     try:
         data = avis_client.cancel_reservation(reservation_id, email, reason, idem_key)
-        return json.dumps(data, indent=2)
+        return json.dumps(_sanitize_response(data), indent=2)
     except AvisAPIError as e:
+        if e.code == "VERIFICATION_FAILED":
+            return "Verification failed. The email provided does not match our records."
         return f"Cancellation failed: {e.message}"
     except AvisAPIUnavailable as e:
         return str(e)
