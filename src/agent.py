@@ -121,6 +121,20 @@ topic_guardrail = InputGuardrail(guardrail_function=_check_topic, name="topic_ch
 # expected verification values in tool output — only pass/fail for verification.
 _WRITE_REDACT_KEYS = {"email", "cvv", "billing_zip", "customer_email"}
 
+import re
+
+_CVV_RE = re.compile(r"^\d{3,4}$")
+_ZIP_RE = re.compile(r"^\d{5}$")
+
+
+def _validate_payment_fields(cvv: str, billing_zip: str) -> str | None:
+    """Return an error message if CVV or billing zip format is invalid, else None."""
+    if not _CVV_RE.match(cvv):
+        return "Invalid CVV — must be exactly 3 or 4 digits."
+    if not _ZIP_RE.match(billing_zip):
+        return "Invalid billing zip — must be exactly 5 digits."
+    return None
+
 
 def _sanitize_response(data: dict) -> dict:
     """Strip verification/PII fields from a write API response.
@@ -243,6 +257,9 @@ def extend_rental(reservation_id: str, new_return_datetime: str,
     """Execute a rental extension. Requires customer verification (email) and
     payment details (CVV and billing zip). Always get a quote first and confirm
     with the customer before calling this."""
+    err = _validate_payment_fields(cvv, billing_zip)
+    if err:
+        return err
     err = _check_reservation_active(reservation_id)
     if err:
         return err
