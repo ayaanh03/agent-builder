@@ -11,7 +11,6 @@ Uses SDK built-in features:
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 
 from textual import work, on
@@ -22,15 +21,12 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import reactive
 
-from agents import Runner, RunConfig, SQLiteSession, InputGuardrailTripwireTriggered
+from agents import Runner, RunConfig, InputGuardrailTripwireTriggered
 
 
 # ---------------------------------------------------------------------------
-# Session & tracing config
+# Tracing config
 # ---------------------------------------------------------------------------
-
-SESSIONS_DIR = Path(__file__).resolve().parent.parent / "sessions"
-SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # PII-safe tracing: SDK traces tool calls, LLM generations, guardrails
 # automatically — but with sensitive data excluded from trace payloads.
@@ -265,12 +261,7 @@ class AvisApp(App):
     def __init__(self) -> None:
         super().__init__()
         self._options_active = False
-
-        # Session created lazily in the worker thread to avoid SQLite
-        # cross-thread issues (connection must be used on the thread that
-        # created it).
-        self._session_id = str(uuid.uuid4())[:12]
-        self._session: SQLiteSession | None = None
+        self.conversation_history: list[dict] = []
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-scroll", can_focus=False)
@@ -359,6 +350,8 @@ class AvisApp(App):
         chat.mount(msg)
         chat.scroll_end(animate=False)
 
+        self.conversation_history.append({"role": "user", "content": text})
+
         # Show thinking indicator
         thinking = Static("[dim italic]🤔 Thinking...[/]")
         thinking.add_class("thinking")
@@ -375,23 +368,16 @@ class AvisApp(App):
     def _run_agent(self, user_text: str) -> None:
         """Run the agent in a background thread.
 
-        SQLiteSession automatically loads prior conversation history and
-        saves the new turn (user message + assistant response + tool calls).
-        Built-in tracing records everything to the OpenAI Traces dashboard.
+        Conversation history is managed as a simple list passed to Runner.
+        Built-in tracing records LLM calls, tool invocations, and guardrails
+        to the OpenAI Traces dashboard automatically.
         """
         from agent import agent
-
-        # Create session lazily on the worker thread so the SQLite
-        # connection lives on the same thread that uses it.
-        if self._session is None:
-            db_path = str(SESSIONS_DIR / f"{self._session_id}.db")
-            self._session = SQLiteSession(self._session_id, db_path)
 
         try:
             result = Runner.run_sync(
                 agent,
-                user_text,
-                session=self._session,
+                self.conversation_history,
                 run_config=RUN_CONFIG,
             )
             response = result.final_output
@@ -403,6 +389,7 @@ class AvisApp(App):
                 "Please try again in a moment."
             )
 
+        self.conversation_history.append({"role": "assistant", "content": response})
         self.call_from_thread(self._show_response, response)
 
     def _show_response(self, text: str) -> None:
