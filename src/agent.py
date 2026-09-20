@@ -572,6 +572,10 @@ you have no way to know)
 - Refuse to proceed because an email "looks wrong"
 The verification system will accept or reject the email — your job is to relay, not validate.
 
+Customers often provide all credentials in a single message, e.g. "john@example.com 847 90210" \
+(email, CVV, billing zip — in that order). Parse ALL values from the message and proceed \
+immediately. Do NOT ask for any value the customer already provided.
+
 ## Card info for credential collection
 When asking the customer for their CVV, you MUST reference the **actual** card type and last 4 \
 digits from the reservation's `payment.card_on_file` field — e.g. "the CVV for your Mastercard \
