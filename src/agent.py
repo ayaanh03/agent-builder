@@ -62,12 +62,24 @@ async def _check_topic(
     agent: Agent,
     input: str | list,
 ) -> GuardrailFunctionOutput:
-    """Run a fast off-topic check on user input."""
-    # Extract the text from the input
+    """Run a fast off-topic check on user input.
+
+    Only checks the FIRST message in a conversation. Once there's history,
+    follow-up messages (dates, confirmations, "yes", etc.) are almost always
+    on-topic and the system prompt handles any edge cases.
+    """
+    # Skip guardrail when there's conversation history — follow-ups are
+    # nearly always on-topic and the system prompt enforces scope anyway
     if isinstance(input, list):
-        # Get the last user message
+        user_count = sum(1 for item in input
+                         if (isinstance(item, dict) and item.get("role") == "user")
+                         or (hasattr(item, "role") and item.role == "user"))
+        if user_count > 1:
+            return GuardrailFunctionOutput(output_info="has_history", tripwire_triggered=False)
+
+        # Extract first user message text
         user_text = ""
-        for item in reversed(input):
+        for item in input:
             if isinstance(item, dict) and item.get("role") == "user":
                 user_text = item.get("content", "")
                 break
@@ -83,7 +95,8 @@ async def _check_topic(
     text_lower = user_text.lower()
     avis_signals = {"reservation", "rental", "avis", "extend", "cancel", "booking",
                     "return", "pickup", "drop off", "dropoff", "avs-", "policy",
-                    "vehicle", "car", "suv", "sedan", "minivan", "upgrade"}
+                    "vehicle", "car", "suv", "sedan", "minivan", "upgrade",
+                    "res ", "look up", "lookup"}
     if any(s in text_lower for s in avis_signals):
         return GuardrailFunctionOutput(output_info="on_topic", tripwire_triggered=False)
 
@@ -236,16 +249,31 @@ NEVER show raw ISO timestamps, UTC offsets, or "+00:00" times to the customer.
 
 ### Extensions
 1. Always look up the reservation first to understand the current details.
-2. Search the knowledge base for extension policies when relevant.
-3. Get a quote for the extension and present the charges to the customer.
-4. Only after the customer confirms, collect their email (for verification), CVV, and billing zip.
-5. Execute the extension and provide the confirmation number.
+2. **Check eligibility**: the reservation must have status "active" AND the current return \
+date must be in the future. If the car has already been returned or the reservation is \
+completed/cancelled, tell the customer the rental has already ended and cannot be extended.
+3. Search the knowledge base for extension policies when relevant.
+4. If the customer provides a date (e.g. "october 12", "next Friday"), treat it as the \
+desired new return date and get a quote for it. Do NOT ask them to repeat the date.
+5. Present the quote charges to the customer.
+6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip.
+7. Execute the extension and provide the confirmation number.
 
 ### Cancellations
 1. Look up the reservation first.
-2. Search the knowledge base for cancellation policies and explain any penalties.
-3. After the customer confirms they want to proceed, collect their email for verification.
-4. Execute the cancellation and provide refund details.
+2. **Check eligibility**: the reservation must have status "active". If it's already \
+completed, cancelled, or the return date has passed, inform the customer accordingly.
+3. Search the knowledge base for cancellation policies and explain any penalties.
+4. After the customer confirms they want to proceed, collect their email for verification.
+5. Execute the cancellation and provide refund details.
+
+## Conversation style
+- When the customer provides information in context (a date, a confirmation, a reservation \
+ID), connect it to the current workflow. Don't ask them to repeat themselves.
+- Short follow-ups like "yes", "sure", a date, or an ID are responses to YOUR last question — \
+treat them as such.
+- Be warm, concise, and helpful. Use the customer's name when you know it.
+- Always present monetary amounts clearly with currency.
 
 ## Important rules
 - NEVER fabricate policies — always use search_knowledge_base to look up the answer.
@@ -253,8 +281,6 @@ NEVER show raw ISO timestamps, UTC offsets, or "+00:00" times to the customer.
 - If the system is temporarily unavailable, apologize and suggest trying again shortly.
 - For requests outside your scope (modifications, upgrades, etc.), let the customer know \
 those features are coming soon and suggest they contact Avis directly at 1-800-633-3469.
-- Be warm, concise, and helpful. Use the customer's name when you know it.
-- Always present monetary amounts clearly with currency.
 """
 
 agent = Agent(
