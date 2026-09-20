@@ -177,12 +177,14 @@ def _check_reservation_active(reservation_id: str) -> str | None:
         try:
             ret = datetime.fromisoformat(return_dt)
             if ret < datetime.now(timezone.utc):
+                local_ret = ret.astimezone()
                 return (
                     "This rental's return date has already passed "
-                    f"({return_dt}). The vehicle has been returned and the "
+                    f"({local_ret.strftime('%A, %B %d at %I:%M %p %Z')}). "
+                    "The vehicle has been returned and the "
                     "reservation can no longer be extended or modified."
                 )
-        except ValueError:
+        except (ValueError, TypeError):
             pass  # unparseable date — let the API decide
 
     return None
@@ -206,13 +208,22 @@ def lookup_reservation(reservation_id: str) -> str:
             try:
                 ret = datetime.fromisoformat(return_dt)
                 if ret < datetime.now(timezone.utc):
+                    local_ret = ret.astimezone()
                     result += (
                         "\n\n⚠️ NOTE: This rental's return date has already "
-                        "passed. The vehicle has been returned. This reservation "
+                        f"passed ({local_ret.strftime('%A, %B %d at %I:%M %p %Z')}). "
+                        "The vehicle has been returned. This reservation "
                         "CANNOT be extended, modified, or cancelled."
                     )
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
+
+        # Surface card info for easy reference when collecting credentials later
+        card = data.get("payment", {}).get("card_on_file", {})
+        if card.get("type") and card.get("last_four"):
+            result += (
+                f"\n\n💳 Card on file: {card['type']} ending in {card['last_four']}"
+            )
 
         return result
     except AvisAPIError as e:
@@ -539,6 +550,21 @@ ID), connect it to the current workflow. Don't ask them to repeat themselves.
 treat them as such.
 - Be warm, concise, and helpful. Use the customer's name when you know it.
 - Always present monetary amounts clearly with currency.
+
+## Verification — DO NOT second-guess customer input
+When the customer provides their email, CVV, or billing zip, pass the values EXACTLY as given \
+to the tool. Do NOT:
+- Spell-check or question email domains (e.g. "exmaple.com" could be a legitimate domain — \
+you have no way to know)
+- Suggest the customer may have made a typo in their email
+- Refuse to proceed because an email "looks wrong"
+The verification system will accept or reject the email — your job is to relay, not validate.
+
+## Card info for credential collection
+When asking the customer for their CVV, you MUST reference the **actual** card type and last 4 \
+digits from the reservation's `payment.card_on_file` field — e.g. "the CVV for your Mastercard \
+ending in 2941". NEVER use placeholders like "[card type]" or "[last 4 digits]". If you don't \
+remember the card info, look up the reservation again before asking.
 
 ## Important rules
 - NEVER fabricate policies — always use search_knowledge_base to look up the answer.
