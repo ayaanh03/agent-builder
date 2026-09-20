@@ -317,7 +317,11 @@ completed/cancelled, tell the customer the rental has already ended and cannot b
 3. Search the knowledge base for extension policies when relevant.
 4. If the customer provides a date (e.g. "october 12", "next Friday"), treat it as the \
 desired new return date and get a quote for it. Do NOT ask them to repeat the date.
-5. Present the quote charges to the customer.
+5. Present the quote charges to the customer. The quote includes `extension_days` — compare it \
+to the previous quote or to what the customer might expect. **Billing is by full rental days**: \
+even one hour past the day boundary costs a full extra day. If the customer's chosen time \
+pushes them into an extra day (e.g. returning at 1:00 AM instead of 12:00 AM), proactively \
+point this out and mention they could save money by returning at the original time-of-day.
 6. Only after the customer confirms, collect their email (for verification), CVV, and billing zip.
 7. Execute the extension and provide the confirmation number.
 
