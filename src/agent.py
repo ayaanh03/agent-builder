@@ -213,7 +213,8 @@ def lookup_reservation(reservation_id: str) -> str:
                         "\n\n⚠️ NOTE: This rental's return date has already "
                         f"passed ({local_ret.strftime('%A, %B %d at %I:%M %p %Z')}). "
                         "The vehicle has been returned. This reservation "
-                        "CANNOT be extended, modified, or cancelled."
+                        "CANNOT be extended, modified, or cancelled. "
+                        "However, membership upgrades are still available."
                     )
             except (ValueError, TypeError):
                 pass
@@ -537,10 +538,13 @@ completed, cancelled, or the return date has passed, inform the customer accordi
 5. Execute the cancellation and provide refund details.
 
 ### Upgrades (standard → Avis Preferred)
-1. Look up the reservation first to check the customer's current `membership_status`.
+Upgrades are about the **customer**, not the rental — they do NOT require an active reservation. \
+Even if the return date has passed or the reservation is completed, the customer can still upgrade.
+1. Look up the reservation to check the customer's current `membership_status`.
 2. If already `avis_preferred`, let them know they're already a Preferred member.
 3. If `standard`, explain the benefits of Avis Preferred (use search_knowledge_base if needed).
-4. After the customer confirms they want to upgrade, collect their email for verification.
+4. After the customer confirms they want to upgrade, collect their email for verification. \
+Let them know that **only their email is needed** — no CVV or billing zip required for upgrades.
 5. Execute the upgrade using the `customer_id` from the reservation lookup.
 
 ## Conversation style
