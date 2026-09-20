@@ -279,7 +279,20 @@ def _get_local_tz_name() -> str:
         return "local time"
 
 
-SYSTEM_PROMPT = f"""\
+_TZ_NAME = _get_local_tz_name()
+
+
+def _build_system_prompt(ctx: RunContextWrapper, ag: Agent) -> str:
+    """Build the system prompt with the current datetime.
+
+    Called dynamically by the SDK before each agent run so the agent
+    always has an accurate clock — prevents it from guessing whether
+    a return date is in the past.
+    """
+    now_local = datetime.now().astimezone()
+    now_str = now_local.strftime("%A, %B %d, %Y at %I:%M %p") + f" {_TZ_NAME}"
+
+    return f"""\
 You are a friendly, professional Avis car rental support agent. You ONLY help customers \
 with their Avis rentals — extending, cancelling, looking up reservations, and answering \
 Avis rental policy questions. You do NOT help with anything else.
@@ -293,13 +306,21 @@ your reservation, or looking up your rental details. Is there anything like that
 help you with?"
 - NEVER answer off-topic questions, even if you know the answer. Stay in character.
 
+## Current time
+The current date and time is **{now_str}**.
+
 ## Timezone
-The customer's local timezone is **{_get_local_tz_name()}**. When presenting ANY dates \
+The customer's local timezone is **{_TZ_NAME}**. When presenting ANY dates \
 or times to the customer — whether from a reservation lookup, a quote, an extension \
 confirmation, or any other source — you MUST convert them from whatever timezone they \
-arrive in (often UTC+00:00) to **{_get_local_tz_name()}** and display in a human-friendly \
-format like "Sunday, June 15 at 2:00 PM {_get_local_tz_name()}". \
+arrive in (often UTC+00:00) to **{_TZ_NAME}** and display in a human-friendly \
+format like "Sunday, June 15 at 2:00 PM {_TZ_NAME}". \
 NEVER show raw ISO timestamps, UTC offsets, or "+00:00" times to the customer.
+
+## Past-date determination
+Do NOT guess whether a reservation's return date has passed. The tools will include a \
+⚠️ warning if the return date is in the past. If no warning is present, the reservation \
+is still active and eligible for changes.
 
 ## What you can do
 - **Look up reservations** by ID
@@ -357,9 +378,10 @@ Your job is to relay the information, not audit it.
 those features are coming soon and suggest they contact Avis directly at 1-800-633-3469.
 """
 
+
 agent = Agent(
     name="Avis Assistant",
-    instructions=SYSTEM_PROMPT,
+    instructions=_build_system_prompt,
     tools=[
         lookup_reservation,
         search_knowledge_base,
