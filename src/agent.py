@@ -33,10 +33,10 @@ import knowledge_base  # noqa: E402
 
 _OFF_TOPIC_KEYWORDS = {
     "code", "program", "script", "python", "javascript", "html",
-    "homework", "math", "equation", "solve", "calculate",
+    "homework", "equation",
     "joke", "funny", "humor", "riddle",
     "recipe", "cook", "weather", "stock", "crypto",
-    "write me a", "tell me a joke", "help me with my",
+    "write me a", "tell me a joke",
 }
 
 _GUARDRAIL_RESPONSE = (
@@ -49,9 +49,20 @@ _GUARDRAIL_RESPONSE = (
 _guardrail_agent = Agent(
     name="Topic Classifier",
     instructions=(
-        "You are a classifier that determines if a user message is related to "
-        "Avis car rental servicing (extending, cancelling, looking up reservations, "
-        "rental policies, vehicle availability). "
+        "You are a classifier that determines if a user message is appropriate for "
+        "an Avis car rental customer support agent. Mark as 'on_topic':\n"
+        "- Anything about car rentals, reservations, extensions, cancellations, modifications\n"
+        "- Rental policies, fees, pricing, insurance, roadside assistance\n"
+        "- Customer greetings and pleasantries (hi, how are you, thanks, etc.)\n"
+        "- Questions about what the agent can help with\n"
+        "- Simple math or calculations that could relate to rental costs\n"
+        "- General travel or vehicle questions (customer may be leading into a rental question)\n"
+        "\nMark as 'off_topic' ONLY clearly unrelated requests like:\n"
+        "- Writing code, essays, or creative fiction\n"
+        "- Homework help unrelated to car rentals\n"
+        "- Jokes, recipes, medical advice, stock picks\n"
+        "\nWhen in doubt, classify as 'on_topic' — it's better to let a borderline "
+        "message through than to reject a real customer.\n"
         "Respond ONLY with 'on_topic' or 'off_topic'. Nothing else."
     ),
 )
@@ -93,12 +104,29 @@ async def _check_topic(
 
     # Quick keyword pre-filter — skip the LLM call for obvious Avis queries
     text_lower = user_text.lower()
-    avis_signals = {"reservation", "rental", "avis", "extend", "cancel", "booking",
-                    "return", "pickup", "drop off", "dropoff", "avs-", "policy",
-                    "vehicle", "car", "suv", "sedan", "minivan", "upgrade",
-                    "res ", "look up", "lookup"}
+    avis_signals = {
+        # Core rental terms
+        "reservation", "rental", "avis", "extend", "cancel", "booking",
+        "return", "pickup", "drop off", "dropoff", "avs-", "upgrade",
+        "vehicle", "car", "suv", "sedan", "minivan",
+        "res ", "look up", "lookup",
+        # Policy (covers "policy", "policies")
+        "polic",
+        # Cost / pricing questions
+        "how much", "cost", "price", "fee", "charge", "refund",
+        "insurance", "coverage", "roadside",
+        # Navigational questions (what can you do, help me, options)
+        "what can", "help me", "option", "what do you",
+        # Greetings — customers start conversations this way
+        "hi ", "hi!", "hello", "hey ", "hey!", "howdy",
+        "how are you", "good morning", "good afternoon", "good evening",
+        "thanks", "thank you",
+    }
     if any(s in text_lower for s in avis_signals):
         return GuardrailFunctionOutput(output_info="on_topic", tripwire_triggered=False)
+    # Also pass through very short messages — greetings like "hi" or "hey"
+    if text_lower.strip() in {"hi", "hey", "hello", "yo", "sup", "hola", "hii", "heyy"}:
+        return GuardrailFunctionOutput(output_info="greeting", tripwire_triggered=False)
 
     # Use the guardrail agent for ambiguous cases
     result = await Runner.run(_guardrail_agent, user_text)
@@ -476,13 +504,21 @@ with their Avis rentals — extending, cancelling, looking up reservations, and 
 Avis rental policy questions. You do NOT help with anything else.
 
 ## Scope guardrails
-- You MUST decline any request that is not related to Avis car rentals.
-- If a customer asks you to write code, do math homework, tell jokes, give travel advice, \
-or anything outside of Avis rental servicing, politely redirect: \
+- You are a customer service agent — respond warmly to greetings ("hi", "how are you", etc.) \
+and polite conversation. Be personable. If someone says "how are you?", answer briefly \
+and ask how you can help with their rental.
+- If a customer asks a simple math question that could relate to their rental (e.g. "how many \
+days between June 5 and June 12?", "what's 89.99 times 3?"), go ahead and answer it — \
+they're probably calculating rental costs.
+- If a customer asks a general question about car rentals or reservations (not Avis-specific), \
+answer helpfully — they're your customer and it's part of good service.
+- DECLINE requests that are clearly unrelated to car rentals or customer service: writing code, \
+writing essays, telling jokes, giving medical advice, homework help, recipes, etc. Politely redirect: \
 "I'm only able to help with Avis rental questions — things like extending or cancelling \
 your reservation, or looking up your rental details. Is there anything like that I can \
 help you with?"
-- NEVER answer off-topic questions, even if you know the answer. Stay in character.
+- When in doubt, help the customer. It's better to answer a borderline question than to \
+frustrate a real customer by rejecting something they need help with.
 
 ## Current time
 The current date and time is **{now_str}**.
